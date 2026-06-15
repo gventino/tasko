@@ -26,12 +26,33 @@ driven, all stored locally in SQLite.
   `l:<label>` operators; **global search** across boards (`g`) with debounce
 - Optimistic updates: every action lands instantly, persistence runs async
 
+## Install
+
+One-line install (clones the repo, builds the optimized release binary and
+installs it to `~/.cargo/bin/tasko-fable`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/gventino/tasko/main/install.sh | bash
+```
+
+The script installs Rust via [rustup](https://rustup.rs) if it is missing
+(requires Rust ≥ 1.88). Make sure `~/.cargo/bin` is on your `PATH`, then run
+`tasko-fable`.
+
+Already cloned the repo? Just run `./install.sh` from inside it.
+
 ## Run
 
 ```sh
-cargo run --release            # data in the platform data dir
-TASKO_DB=/tmp/demo.db cargo run --release    # custom database file
-cargo run --release -- --seed 100            # populate demo data
+tasko-fable                                  # data in the platform data dir
+TASKO_DB=/tmp/demo.db tasko-fable            # custom database file
+tasko-fable --seed 100                       # populate demo data
+```
+
+Or run straight from a checkout without installing:
+
+```sh
+cargo run --release
 ```
 
 Press `?` inside the app for the full keymap.
