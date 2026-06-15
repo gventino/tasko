@@ -2,15 +2,15 @@ use anyhow::Result;
 use chrono::Utc;
 
 use super::Db;
-use crate::domain::{Activity, Id};
+use crate::domain::{Activity, ActivityKind, Id};
 
 impl Db {
-    pub async fn log_activity(&self, task_id: Id, kind: &str, detail: &str) -> Result<()> {
+    pub async fn log_activity(&self, task_id: Id, kind: ActivityKind, detail: &str) -> Result<()> {
         sqlx::query(
             "INSERT INTO activities (task_id, kind, detail, created_at) VALUES (?, ?, ?, ?)",
         )
         .bind(task_id)
-        .bind(kind)
+        .bind(kind.as_str())
         .bind(detail)
         .bind(Utc::now())
         .execute(self.pool())

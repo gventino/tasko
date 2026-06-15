@@ -1,6 +1,6 @@
 use super::Db;
 use crate::db::tasks::NewTask;
-use crate::domain::{Priority, position_between};
+use crate::domain::{ActivityKind, Priority, position_between};
 
 async fn db() -> Db {
     Db::connect_in_memory().await.expect("in-memory db")
@@ -153,12 +153,12 @@ async fn activities_are_logged_and_listed() {
         .create_task(new_task(board.id, columns[0].id, "t"))
         .await
         .unwrap();
-    db.log_activity(task.id, "moved", "moved from To Do to Done")
+    db.log_activity(task.id, ActivityKind::Moved, "moved from To Do to Done")
         .await
         .unwrap();
     let acts = db.activities_for_task(task.id).await.unwrap();
     assert_eq!(acts.len(), 2); // "created" + "moved"
-    assert_eq!(acts[0].kind, "moved");
+    assert_eq!(acts[0].kind, ActivityKind::Moved);
 }
 
 #[tokio::test]

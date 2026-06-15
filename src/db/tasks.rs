@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{NaiveDate, Utc};
 
 use super::Db;
-use crate::domain::{Id, POSITION_GAP, Priority, Task, activity_kind};
+use crate::domain::{ActivityKind, Id, POSITION_GAP, Priority, Task};
 
 pub struct NewTask {
     pub board_id: Id,
@@ -87,7 +87,7 @@ impl Db {
             "INSERT INTO activities (task_id, kind, detail, created_at) VALUES (?, ?, ?, ?)",
         )
         .bind(task.id)
-        .bind(activity_kind::CREATED)
+        .bind(ActivityKind::Created.as_str())
         .bind("Task created")
         .bind(now)
         .execute(&mut *tx)
@@ -97,7 +97,7 @@ impl Db {
                 "INSERT INTO activities (task_id, kind, detail, created_at) VALUES (?, ?, ?, ?)",
             )
             .bind(parent_id)
-            .bind(activity_kind::SUBTASK)
+            .bind(ActivityKind::Subtask.as_str())
             .bind(format!("Added subtask \"{}\"", new.title))
             .bind(now)
             .execute(&mut *tx)

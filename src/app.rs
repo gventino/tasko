@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::db::Db;
 use crate::db::tasks::NewTask;
-use crate::domain::{Activity, Board, Id, Task, activity_kind, position_between};
+use crate::domain::{Activity, ActivityKind, Board, Id, Task, position_between};
 use crate::filter::Filter;
 use crate::forms::{
     BoardSwitcher, ColumnManager, Confirm, ConfirmAction, InputAction, InputModal, LabelPicker,
@@ -188,14 +188,14 @@ impl App {
     /// Spawn the initial load; result arrives as a `Bootstrapped` message.
     pub fn start(&self) {
         let db = self.db.clone();
-        let tx = self.tx.clone();
-        tokio::spawn(async move {
-            let msg = match bootstrap(&db).await {
-                Ok((boards, state)) => DbResult::Bootstrapped(boards, Box::new(state)),
-                Err(err) => DbResult::Error(err.to_string()),
-            };
-            let _ = tx.send(Message::Db(msg));
-        });
+        self.spawn_db(
+            async move {
+                bootstrap(&db)
+                    .await
+                    .map(|(boards, state)| (boards, Box::new(state)))
+            },
+            |(boards, state)| DbResult::Bootstrapped(boards, state),
+        );
     }
 
     pub fn update(&mut self, msg: Message) {
@@ -448,13 +448,9 @@ impl App {
             return;
         }
         let cols = board.columns.len();
-        let new_col = (self.sel_col as i64 + dx).clamp(0, cols as i64 - 1) as usize;
+        let new_col = step_index(self.sel_col, dx, cols);
         let rows = self.visible_tasks(board, new_col).len();
-        let new_row = if rows == 0 {
-            0
-        } else {
-            (self.sel_row as i64 + dy).clamp(0, rows as i64 - 1) as usize
-        };
+        let new_row = step_index(self.sel_row, dy, rows);
         if new_col != self.sel_col || new_row != self.sel_row {
             self.sel_col = new_col;
             self.sel_row = new_row;
@@ -544,14 +540,10 @@ impl App {
         self.dirty = true;
         let query = search.input.clone();
         let db = self.db.clone();
-        let tx = self.tx.clone();
-        tokio::spawn(async move {
-            let msg = match db.search_tasks_global(&query, 50).await {
-                Ok(tasks) => DbResult::SearchResults(seq, tasks),
-                Err(err) => DbResult::Error(err.to_string()),
-            };
-            let _ = tx.send(Message::Db(msg));
-        });
+        self.spawn_db(
+            async move { db.search_tasks_global(&query, 50).await },
+            move |tasks| DbResult::SearchResults(seq, tasks),
+        );
     }
 
     fn global_search_select(&mut self, dir: i64) {
@@ -561,8 +553,7 @@ impl App {
         if search.results.is_empty() {
             return;
         }
-        let len = search.results.len() as i64;
-        let new = (search.sel as i64 + dir).clamp(0, len - 1) as usize;
+        let new = step_index(search.sel, dir, search.results.len());
         if new != search.sel {
             search.sel = new;
             self.dirty = true;
@@ -719,8 +710,7 @@ impl App {
         form.priority = if dir >= 0 {
             form.priority.cycle()
         } else {
-            // three forward steps == one back in a 4-cycle
-            form.priority.cycle().cycle().cycle()
+            form.priority.prev()
         };
         self.dirty = true;
     }
@@ -756,15 +746,11 @@ impl App {
                     due_date: output.due_date,
                 };
                 let db = self.db.clone();
-                let tx = self.tx.clone();
                 self.pending_saves += 1;
-                tokio::spawn(async move {
-                    let msg = match db.create_task(new).await {
-                        Ok(task) => DbResult::TaskCreated(task),
-                        Err(err) => DbResult::Error(err.to_string()),
-                    };
-                    let _ = tx.send(Message::Db(msg));
-                });
+                self.spawn_db(
+                    async move { db.create_task(new).await },
+                    DbResult::TaskCreated,
+                );
             }
             Some(task_id) => self.apply_task_edit(task_id, output),
         }
@@ -807,7 +793,7 @@ impl App {
                 output.due_date,
             )
             .await?;
-            db.log_activity(task_id, activity_kind::EDITED, &detail)
+            db.log_activity(task_id, ActivityKind::Edited, &detail)
                 .await
         });
     }
@@ -831,14 +817,10 @@ impl App {
 
     fn load_detail_activities(&self, task_id: Id) {
         let db = self.db.clone();
-        let tx = self.tx.clone();
-        tokio::spawn(async move {
-            let msg = match db.activities_for_task(task_id).await {
-                Ok(acts) => DbResult::ActivitiesLoaded(task_id, acts),
-                Err(err) => DbResult::Error(err.to_string()),
-            };
-            let _ = tx.send(Message::Db(msg));
-        });
+        self.spawn_db(
+            async move { db.activities_for_task(task_id).await },
+            move |acts| DbResult::ActivitiesLoaded(task_id, acts),
+        );
     }
 
     fn detail_subtasks_len(&self) -> usize {
@@ -859,7 +841,7 @@ impl App {
         if len == 0 {
             return;
         }
-        let new = (detail.sel_sub as i64 + dir).clamp(0, len as i64 - 1) as usize;
+        let new = step_index(detail.sel_sub, dir, len);
         if new != detail.sel_sub {
             detail.sel_sub = new;
             self.dirty = true;
@@ -900,7 +882,7 @@ impl App {
             );
             self.persist_and_refresh_activities(parent_id, async move {
                 db.set_task_done(sub_id, done).await?;
-                db.log_activity(parent_id, activity_kind::SUBTASK, &detail)
+                db.log_activity(parent_id, ActivityKind::Subtask, &detail)
                     .await
             });
         }
@@ -985,7 +967,7 @@ impl App {
         if len == 0 {
             return;
         }
-        let new = (picker.sel as i64 + dir).clamp(0, len as i64 - 1) as usize;
+        let new = step_index(picker.sel, dir, len);
         if new != picker.sel {
             picker.sel = new;
             self.dirty = true;
@@ -1024,7 +1006,7 @@ impl App {
         );
         self.persist_and_refresh_activities(task_id, async move {
             db.set_task_labels(task_id, &ids).await?;
-            db.log_activity(task_id, activity_kind::LABELS, &detail)
+            db.log_activity(task_id, ActivityKind::Labels, &detail)
                 .await
         });
     }
@@ -1071,15 +1053,11 @@ impl App {
         let board_id = board.board.id;
         let color = board.labels.len() as i64 % crate::ui::theme::LABEL_PALETTE.len() as i64;
         let db = self.db.clone();
-        let tx = self.tx.clone();
         self.pending_saves += 1;
-        tokio::spawn(async move {
-            let msg = match db.create_label(board_id, &name, color).await {
-                Ok(label) => DbResult::LabelCreated(label),
-                Err(err) => DbResult::Error(err.to_string()),
-            };
-            let _ = tx.send(Message::Db(msg));
-        });
+        self.spawn_db(
+            async move { db.create_label(board_id, &name, color).await },
+            DbResult::LabelCreated,
+        );
     }
 
     fn delete_selected_label(&mut self) {
@@ -1132,7 +1110,7 @@ impl App {
         if len == 0 {
             return;
         }
-        let new = (switcher.sel as i64 + dir).clamp(0, len as i64 - 1) as usize;
+        let new = step_index(switcher.sel, dir, len);
         if new != switcher.sel {
             switcher.sel = new;
             self.dirty = true;
@@ -1156,14 +1134,10 @@ impl App {
 
     fn load_board(&mut self, board: Board) {
         let db = self.db.clone();
-        let tx = self.tx.clone();
-        tokio::spawn(async move {
-            let msg = match load_board_state(&db, board).await {
-                Ok(state) => DbResult::BoardLoaded(Box::new(state)),
-                Err(err) => DbResult::Error(err.to_string()),
-            };
-            let _ = tx.send(Message::Db(msg));
-        });
+        self.spawn_db(
+            async move { load_board_state(&db, board).await.map(Box::new) },
+            DbResult::BoardLoaded,
+        );
     }
 
     fn rename_board_start(&mut self) {
@@ -1230,7 +1204,7 @@ impl App {
         if len == 0 {
             return;
         }
-        let new = (manager.sel as i64 + dir).clamp(0, len as i64 - 1) as usize;
+        let new = step_index(manager.sel, dir, len);
         if new != manager.sel {
             manager.sel = new;
             self.dirty = true;
@@ -1386,15 +1360,11 @@ impl App {
                 let Some(board) = &self.board else { return };
                 let board_id = board.board.id;
                 let db = self.db.clone();
-                let tx = self.tx.clone();
                 self.pending_saves += 1;
-                tokio::spawn(async move {
-                    let msg = match db.create_column(board_id, &value).await {
-                        Ok(column) => DbResult::ColumnCreated(column),
-                        Err(err) => DbResult::Error(err.to_string()),
-                    };
-                    let _ = tx.send(Message::Db(msg));
-                });
+                self.spawn_db(
+                    async move { db.create_column(board_id, &value).await },
+                    DbResult::ColumnCreated,
+                );
             }
             InputAction::RenameColumn(id) => {
                 if let Some(board) = &mut self.board
@@ -1409,15 +1379,11 @@ impl App {
                 let existing: Vec<String> = self.boards.iter().map(|b| b.key.clone()).collect();
                 let key = crate::domain::derive_board_key(&value, &existing);
                 let db = self.db.clone();
-                let tx = self.tx.clone();
                 self.pending_saves += 1;
-                tokio::spawn(async move {
-                    let msg = match db.create_board(&value, &key).await {
-                        Ok(board) => DbResult::BoardCreated(board),
-                        Err(err) => DbResult::Error(err.to_string()),
-                    };
-                    let _ = tx.send(Message::Db(msg));
-                });
+                self.spawn_db(
+                    async move { db.create_board(&value, &key).await },
+                    DbResult::BoardCreated,
+                );
             }
             InputAction::RenameBoard(id) => {
                 if let Some(board) = self.boards.iter_mut().find(|b| b.id == id) {
@@ -1481,7 +1447,7 @@ impl App {
                 let detail = format!("Removed subtask \"{title}\"");
                 self.persist_and_refresh_activities(parent_id, async move {
                     db.delete_task(task_id).await?;
-                    db.log_activity(parent_id, activity_kind::SUBTASK, &detail)
+                    db.log_activity(parent_id, ActivityKind::Subtask, &detail)
                         .await
                 });
             }
@@ -1530,8 +1496,7 @@ impl App {
         let db = self.db.clone();
         self.persist(async move {
             db.move_task(task_id, dst_column_id, new_pos).await?;
-            db.log_activity(task_id, activity_kind::MOVED, &detail)
-                .await
+            db.log_activity(task_id, ActivityKind::Moved, &detail).await
         });
     }
 
@@ -1589,7 +1554,7 @@ impl App {
             db.set_task_priority(task_id, new_priority).await?;
             db.log_activity(
                 task_id,
-                activity_kind::PRIORITY,
+                ActivityKind::Priority,
                 &format!("Priority set to {}", new_priority.name()),
             )
             .await
@@ -1616,10 +1581,23 @@ impl App {
         let Some(board) = &self.board else { return };
         let board_meta = board.board.clone();
         let db = self.db.clone();
+        self.spawn_db(
+            async move { load_board_state(&db, board_meta).await.map(Box::new) },
+            DbResult::BoardLoaded,
+        );
+    }
+
+    /// Spawn a DB operation whose success maps to a `DbResult` via `on_ok`;
+    /// any error becomes `DbResult::Error`. The message is sent on the channel.
+    fn spawn_db<T, F>(&self, fut: F, on_ok: impl FnOnce(T) -> DbResult + Send + 'static)
+    where
+        F: Future<Output = Result<T>> + Send + 'static,
+        T: Send + 'static,
+    {
         let tx = self.tx.clone();
         tokio::spawn(async move {
-            let msg = match load_board_state(&db, board_meta).await {
-                Ok(state) => DbResult::BoardLoaded(Box::new(state)),
+            let msg = match fut.await {
+                Ok(value) => on_ok(value),
                 Err(err) => DbResult::Error(err.to_string()),
             };
             let _ = tx.send(Message::Db(msg));
@@ -1634,14 +1612,7 @@ impl App {
     {
         self.pending_saves += 1;
         self.dirty = true;
-        let tx = self.tx.clone();
-        tokio::spawn(async move {
-            let msg = match fut.await {
-                Ok(()) => DbResult::Saved,
-                Err(err) => DbResult::Error(err.to_string()),
-            };
-            let _ = tx.send(Message::Db(msg));
-        });
+        self.spawn_db(fut, |()| DbResult::Saved);
     }
 
     pub fn show_toast(&mut self, kind: ToastKind, text: String) {
@@ -1659,4 +1630,10 @@ impl App {
 
 pub fn channel() -> (Tx, mpsc::UnboundedReceiver<Message>) {
     mpsc::unbounded_channel()
+}
+
+/// Move a selection index by `dir`, clamped into `[0, len)`. Yields `0` when the
+/// list is empty.
+fn step_index(cur: usize, dir: i64, len: usize) -> usize {
+    (cur as i64 + dir).clamp(0, len.saturating_sub(1) as i64) as usize
 }
