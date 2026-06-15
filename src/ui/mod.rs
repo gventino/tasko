@@ -64,7 +64,7 @@ pub fn draw(app: &App, frame: &mut Frame) {
 
 fn draw_header(app: &App, frame: &mut Frame, area: ratatui::layout::Rect) {
     let mut spans = vec![Span::styled(
-        " tasko-fable ",
+        " tasko ",
         Style::default()
             .add_modifier(Modifier::BOLD)
             .fg(theme::ACCENT),
@@ -271,7 +271,7 @@ mod tests {
         assert!(content.contains("In Progress"));
         assert!(content.contains("Done"));
         assert!(content.contains("MB-1"));
-        assert!(content.contains("tasko-fable"));
+        assert!(content.contains("tasko"));
     }
 
     #[tokio::test]

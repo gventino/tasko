@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# tasko-fable installer
+# tasko installer
 #
 # Quick install (clones the repo, builds the release binary and installs it
 # into ~/.cargo/bin):
@@ -17,7 +17,7 @@ set -euo pipefail
 REPO_URL="${TASKO_REPO:-https://github.com/gventino/tasko}"
 REPO_REF="${TASKO_REF:-}"
 MIN_RUST="1.88.0"   # repo uses let-chains + edition 2024
-BIN_NAME="tasko-fable"
+BIN_NAME="tasko"
 
 # ---- pretty logging -------------------------------------------------------
 if [ -t 1 ] && command -v tput >/dev/null 2>&1 && [ -n "$(tput colors 2>/dev/null || echo 0)" ]; then
@@ -112,7 +112,7 @@ main() {
   check_cc
 
   local src_dir
-  if [ -f "Cargo.toml" ] && grep -q '^[[:space:]]*name[[:space:]]*=[[:space:]]*"tasko-fable"' Cargo.toml 2>/dev/null; then
+  if [ -f "Cargo.toml" ] && grep -q '^[[:space:]]*name[[:space:]]*=[[:space:]]*"tasko"' Cargo.toml 2>/dev/null; then
     src_dir="$(pwd)"
     info "Using current checkout: $src_dir"
   else

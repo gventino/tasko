@@ -1,8 +1,8 @@
-# tasko-fable — developer tasks
+# tasko — developer tasks
 # Run `make` or `make help` to list available targets.
 
 CARGO ?= cargo
-BIN    := tasko-fable
+BIN    := tasko
 
 # Number of demo tasks for `make seed` (override: make seed N=500)
 N ?= 100
@@ -19,7 +19,7 @@ endif
 .PHONY: help build run seed test lint fmt fmt-check check ci install uninstall clean
 
 help: ## Show this help
-	@awk 'BEGIN {FS = ":.*##"; printf "tasko-fable — make targets\n\nUsage: make \033[36m<target>\033[0m\n\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-11s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "tasko — make targets\n\nUsage: make \033[36m<target>\033[0m\n\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-11s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 build: ## Build the optimized release binary (target/release/)
 	$(CARGO) build --release --locked
@@ -47,10 +47,10 @@ check: ## Type-check the project without producing binaries
 
 ci: fmt-check lint test ## Run formatting check, lint and tests (what CI runs)
 
-install: ## Build and install tasko-fable into ~/.cargo/bin
+install: ## Build and install tasko into ~/.cargo/bin
 	$(CARGO) install --path . --locked --force
 
-uninstall: ## Remove the installed tasko-fable binary
+uninstall: ## Remove the installed tasko binary
 	$(CARGO) uninstall $(BIN)
 
 clean: ## Remove build artifacts

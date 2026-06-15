@@ -1,4 +1,4 @@
-# tasko-fable
+# tasko
 
 A Jira-style kanban task manager for your terminal, built with
 [Ratatui](https://ratatui.rs). Multiple boards, subtasks, labels, priorities,
@@ -6,7 +6,7 @@ due dates, activity history, filtering and cross-board search — all keyboard
 driven, all stored locally in SQLite.
 
 ```
- tasko-fable · Main Board [MB]
+ tasko · Main Board [MB]
 ┏ To Do 3 ━━━━━━━━━━━━━━━━┓╭ In Progress 2 ─────────╮╭ Done 5 ────────────────╮
 ┃▶ MB-1 ⚑  ☰ 1/3          ┃│  MB-3 ▲                ││  MB-2 ◆                │
 ┃  Fix login redirect     ┃│  Cache board queries   ││  Write onboarding docs │
@@ -29,7 +29,7 @@ driven, all stored locally in SQLite.
 ## Install
 
 One-line install (clones the repo, builds the optimized release binary and
-installs it to `~/.cargo/bin/tasko-fable`):
+installs it to `~/.cargo/bin/tasko`):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/gventino/tasko/main/install.sh | bash
@@ -37,16 +37,16 @@ curl -fsSL https://raw.githubusercontent.com/gventino/tasko/main/install.sh | ba
 
 The script installs Rust via [rustup](https://rustup.rs) if it is missing
 (requires Rust ≥ 1.88). Make sure `~/.cargo/bin` is on your `PATH`, then run
-`tasko-fable`.
+`tasko`.
 
 Already cloned the repo? Just run `./install.sh` from inside it.
 
 ## Run
 
 ```sh
-tasko-fable                                  # data in the platform data dir
-TASKO_DB=/tmp/demo.db tasko-fable            # custom database file
-tasko-fable --seed 100                       # populate demo data
+tasko                                        # data in the platform data dir
+TASKO_DB=/tmp/demo.db tasko                   # custom database file
+tasko --seed 100                             # populate demo data
 ```
 
 Or run straight from a checkout without installing:

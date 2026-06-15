@@ -64,7 +64,7 @@ pub fn default_db_path() -> Result<PathBuf> {
     {
         return Ok(PathBuf::from(path));
     }
-    let dirs = ProjectDirs::from("", "", "tasko-fable")
+    let dirs = ProjectDirs::from("", "", "tasko")
         .context("could not determine a data directory for this platform")?;
     std::fs::create_dir_all(dirs.data_dir())
         .with_context(|| format!("creating data dir {}", dirs.data_dir().display()))?;
