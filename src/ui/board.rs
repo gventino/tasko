@@ -28,6 +28,7 @@ pub fn draw_board(app: &App, board: &BoardState, frame: &mut Frame, area: Rect) 
         return;
     }
 
+    let today = Local::now().date_naive();
     let n_cols = board.columns.len();
     let fit = ((area.width / MIN_COL_W).max(1) as usize).min(n_cols);
     let col_w = (area.width / fit as u16).clamp(MIN_COL_W, MAX_COL_W);
@@ -41,7 +42,7 @@ pub fn draw_board(app: &App, board: &BoardState, frame: &mut Frame, area: Rect) 
 
     for (i, column) in visible.iter().enumerate() {
         let col_idx = first + i;
-        draw_column(app, board, col_idx, column, frame, chunks[i]);
+        draw_column(app, board, col_idx, column, today, frame, chunks[i]);
     }
 
     // Hint arrows when columns overflow on either side.
@@ -74,6 +75,7 @@ fn draw_column(
     board: &BoardState,
     col_idx: usize,
     column: &crate::domain::Column,
+    today: chrono::NaiveDate,
     frame: &mut Frame,
     area: Rect,
 ) {
@@ -158,7 +160,7 @@ fn draw_column(
             break;
         }
         let selected = is_selected_col && offset + slot == sel_row;
-        draw_card(board, task, selected, frame, card_area);
+        draw_card(board, task, selected, today, frame, card_area);
     }
 
     if count > rows_fit {
@@ -174,7 +176,14 @@ fn draw_column(
     }
 }
 
-fn draw_card(board: &BoardState, task: &Task, selected: bool, frame: &mut Frame, area: Rect) {
+fn draw_card(
+    board: &BoardState,
+    task: &Task,
+    selected: bool,
+    today: chrono::NaiveDate,
+    frame: &mut Frame,
+    area: Rect,
+) {
     let base = if selected {
         Style::default().bg(SELECTED_BG)
     } else {
@@ -185,7 +194,7 @@ fn draw_card(board: &BoardState, task: &Task, selected: bool, frame: &mut Frame,
     // Line 1: key + priority icon.
     let mut head = vec![
         Span::styled(if selected { "▶ " } else { "  " }, base.fg(theme::ACCENT)),
-        Span::styled(task.key.clone(), base.fg(theme::DIM)),
+        Span::styled(task.key.as_str(), base.fg(theme::DIM)),
         Span::raw(" "),
         Span::styled(task.priority.icon(), base.fg(pri_color)),
     ];
@@ -204,7 +213,7 @@ fn draw_card(board: &BoardState, task: &Task, selected: bool, frame: &mut Frame,
     };
     let title = Line::from(vec![
         Span::raw("  "),
-        Span::styled(task.title.clone(), title_style),
+        Span::styled(task.title.as_str(), title_style),
     ]);
 
     // Line 3: labels + due date.
@@ -215,7 +224,6 @@ fn draw_card(board: &BoardState, task: &Task, selected: bool, frame: &mut Frame,
         }
     }
     if let Some(due) = task.due_date {
-        let today = Local::now().date_naive();
         let overdue = task.is_overdue(today);
         let text = if due.year() == today.year() {
             due.format("%b %d").to_string()

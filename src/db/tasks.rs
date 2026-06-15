@@ -218,7 +218,13 @@ impl Db {
 
     /// Case-insensitive global search across boards by key or title.
     pub async fn search_tasks_global(&self, query: &str, limit: i64) -> Result<Vec<Task>> {
-        let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+        let pattern = format!(
+            "%{}%",
+            query
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
         Ok(sqlx::query_as(
             "SELECT id, board_id, column_id, parent_id, key, title, description, priority, \
              position, due_date, done, created_at, updated_at FROM tasks \
