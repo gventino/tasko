@@ -49,6 +49,15 @@ impl Priority {
             Priority::Urgent => Priority::Low,
         }
     }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Priority::Low => Priority::Urgent,
+            Priority::Medium => Priority::Low,
+            Priority::High => Priority::Medium,
+            Priority::Urgent => Priority::High,
+        }
+    }
 }
 
 impl TryFrom<i64> for Priority {
@@ -135,18 +144,57 @@ pub struct Activity {
     pub task_id: Id,
     /// Reserved for per-kind icons/filtering in the activity feed.
     #[allow(dead_code)]
-    pub kind: String,
+    #[sqlx(try_from = "String")]
+    pub kind: ActivityKind,
     pub detail: String,
     pub created_at: DateTime<Utc>,
 }
 
-pub mod activity_kind {
-    pub const CREATED: &str = "created";
-    pub const EDITED: &str = "edited";
-    pub const MOVED: &str = "moved";
-    pub const PRIORITY: &str = "priority";
-    pub const LABELS: &str = "labels";
-    pub const SUBTASK: &str = "subtask";
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActivityKind {
+    Created,
+    Edited,
+    Moved,
+    Priority,
+    Labels,
+    Subtask,
+}
+
+impl ActivityKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ActivityKind::Created => "created",
+            ActivityKind::Edited => "edited",
+            ActivityKind::Moved => "moved",
+            ActivityKind::Priority => "priority",
+            ActivityKind::Labels => "labels",
+            ActivityKind::Subtask => "subtask",
+        }
+    }
+}
+
+impl TryFrom<&str> for ActivityKind {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "created" => Ok(ActivityKind::Created),
+            "edited" => Ok(ActivityKind::Edited),
+            "moved" => Ok(ActivityKind::Moved),
+            "priority" => Ok(ActivityKind::Priority),
+            "labels" => Ok(ActivityKind::Labels),
+            "subtask" => Ok(ActivityKind::Subtask),
+            other => Err(format!("invalid activity kind: {other}")),
+        }
+    }
+}
+
+impl TryFrom<String> for ActivityKind {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        ActivityKind::try_from(value.as_str())
+    }
 }
 
 /// Midpoint position between two neighbors. `None` on either side means
@@ -257,5 +305,29 @@ mod tests {
             p = p.cycle();
         }
         assert_eq!(p, Priority::Low);
+    }
+
+    #[test]
+    fn priority_prev_is_inverse_of_cycle() {
+        for p in Priority::ALL {
+            assert_eq!(p.cycle().prev(), p);
+            assert_eq!(p.prev().cycle(), p);
+        }
+    }
+
+    #[test]
+    fn activity_kind_str_round_trips() {
+        let kinds = [
+            ActivityKind::Created,
+            ActivityKind::Edited,
+            ActivityKind::Moved,
+            ActivityKind::Priority,
+            ActivityKind::Labels,
+            ActivityKind::Subtask,
+        ];
+        for kind in kinds {
+            assert_eq!(ActivityKind::try_from(kind.as_str()), Ok(kind));
+        }
+        assert!(ActivityKind::try_from("bogus").is_err());
     }
 }
