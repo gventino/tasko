@@ -79,6 +79,10 @@ cargo test          # domain + repository (in-memory SQLite) + TestBackend UI te
 cargo clippy --all-targets
 ```
 
+Common tasks are wrapped in a `Makefile` — run `make` (or `make help`) to list
+them, e.g. `make build`, `make install`, `make test`, `make ci`,
+`make seed N=500`, `make run DB=/tmp/demo.db`.
+
 Architecture: Elm-style message loop (`src/app.rs`), pure render
 (`src/ui/`), repositories (`src/db/`), domain types and position math
 (`src/domain/`), key→message mapping per context (`src/input.rs`).
