@@ -199,3 +199,37 @@ async fn global_search_matches_key_and_title() {
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].title, "Write docs");
 }
+
+#[tokio::test]
+async fn global_search_escapes_like_metacharacters() {
+    let db = db().await;
+    let board = db.create_board("Tasko", "TSK").await.unwrap();
+    let columns = db.columns_for_board(board.id).await.unwrap();
+    db.create_task(new_task(board.id, columns[0].id, "path C:\\temp report"))
+        .await
+        .unwrap();
+    db.create_task(new_task(board.id, columns[0].id, "progress 50% done"))
+        .await
+        .unwrap();
+    db.create_task(new_task(board.id, columns[0].id, "snake_case name"))
+        .await
+        .unwrap();
+
+    // A backslash in the query must match literally (was a silent no-match).
+    let hits = db.search_tasks_global("C:\\temp", 10).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].title, "path C:\\temp report");
+
+    // `%` and `_` must stay literal, not act as wildcards.
+    let hits = db.search_tasks_global("50%", 10).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].title, "progress 50% done");
+
+    let hits = db.search_tasks_global("snake_case", 10).await.unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].title, "snake_case name");
+
+    // A bare `_` wildcard must not match arbitrary single characters.
+    let hits = db.search_tasks_global("snakeXcase", 10).await.unwrap();
+    assert!(hits.is_empty());
+}

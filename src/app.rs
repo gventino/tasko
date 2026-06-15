@@ -488,6 +488,19 @@ impl App {
         }
     }
 
+    /// Number of tasks visible in a column under the active filter, without
+    /// allocating (unlike `visible_tasks`). Used for match counts.
+    pub fn visible_count(&self, board: &BoardState, col: usize) -> usize {
+        if self.filter.is_active() {
+            board.tasks[col]
+                .iter()
+                .filter(|t| self.filter.matches(t, board))
+                .count()
+        } else {
+            board.tasks[col].len()
+        }
+    }
+
     pub fn filter_active(&self) -> bool {
         self.filter.is_active()
     }

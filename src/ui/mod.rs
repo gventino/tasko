@@ -108,7 +108,7 @@ fn draw_status(app: &App, frame: &mut Frame, area: ratatui::layout::Rect) {
     if app.filter.editing || app.filter.is_active() {
         let matches: usize = app.board.as_ref().map_or(0, |board| {
             (0..board.columns.len())
-                .map(|c| app.visible_tasks(board, c).len())
+                .map(|c| app.visible_count(board, c))
                 .sum()
         });
         let mut spans = vec![
@@ -220,7 +220,7 @@ fn draw_global_search(
                 Line::from(vec![
                     Span::styled(if selected { "▶ " } else { "  " }, theme::accent()),
                     Span::styled(format!("{} ", task.key), style.fg(theme::DIM)),
-                    Span::styled(task.title.clone(), style),
+                    Span::styled(task.title.as_str(), style),
                     Span::styled(format!("  · {board_name}"), style.fg(theme::DIM)),
                 ])
             })
