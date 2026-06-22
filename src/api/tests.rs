@@ -339,6 +339,61 @@ async fn error_responses_are_json() {
 }
 
 #[tokio::test]
+async fn parse_errors_do_not_leak_internal_names() {
+    let cli = test_client().await;
+    let board = create_board(&cli, "NoLeak").await;
+    let column = first_column_id(&cli, board).await;
+
+    // Internal identifiers poem-openapi would otherwise expose in its default
+    // error strings: generated body type names, optional-field wrappers, path
+    // placeholders and internal scalar type tokens.
+    let leaks = [
+        "CreateBoard",
+        "CreateTask",
+        "PriorityDto",
+        "optional_",
+        "param0",
+        "integer_int64",
+        "occurred while parsing",
+    ];
+    let assert_clean = |msg: &str| {
+        for needle in leaks {
+            assert!(
+                !msg.contains(needle),
+                "error message leaked internal name `{needle}`: {msg}"
+            );
+        }
+    };
+
+    // Missing required body field.
+    let resp = cli.post("/boards").body_json(&json!({})).send().await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+    assert_clean(resp.json().await.value().object().get("error").string());
+
+    // Invalid enum value in a request body.
+    let resp = cli
+        .post(format!("/boards/{board}/tasks"))
+        .body_json(&json!({ "column_id": column, "title": "x", "priority": "bogus" }))
+        .send()
+        .await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+    assert_clean(resp.json().await.value().object().get("error").string());
+
+    // Non-integer path parameter.
+    let resp = cli.get("/boards/not-an-int").send().await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+    assert_clean(resp.json().await.value().object().get("error").string());
+
+    // Invalid query parameter type.
+    let resp = cli
+        .get(format!("/boards/{board}/tasks?parent_id=abc"))
+        .send()
+        .await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+    assert_clean(resp.json().await.value().object().get("error").string());
+}
+
+#[tokio::test]
 async fn put_task_labels_dedups() {
     let cli = test_client().await;
     let board = create_board(&cli, "Dedupe Labels").await;

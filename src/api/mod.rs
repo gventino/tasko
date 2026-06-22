@@ -112,12 +112,40 @@ async fn render_error(err: poem::Error) -> poem::Response {
             "internal server error".to_string()
         }
         Some(other) => other.to_string(),
-        None => err.to_string(),
+        None => framework_message(&err, status),
     };
 
     poem::web::Json(serde_json::json!({ "error": message }))
         .with_status(status)
         .into_response()
+}
+
+/// Map framework-level errors (request parsing/validation done by poem-openapi)
+/// to clean, client-safe messages. Never echoes poem-openapi's internal
+/// identifiers — generated request-body type names (e.g. `CreateBoard`,
+/// `optional_PriorityDto`) or path placeholders (e.g. `param0`, `integer_int64`)
+/// — which its default `Display` strings leak.
+fn framework_message(err: &poem::Error, status: StatusCode) -> String {
+    use poem_openapi::error as oapi;
+
+    if err.is::<oapi::ParseRequestPayloadError>() || err.is::<oapi::ParseMultipartError>() {
+        return "invalid request body".to_string();
+    }
+    if err.is::<oapi::ParsePathError>() {
+        return "invalid path parameter".to_string();
+    }
+    if let Some(e) = err.downcast_ref::<oapi::ParseParamError>() {
+        // `name` is the public query/header parameter name, not an internal id.
+        return format!("invalid value for parameter `{}`", e.name);
+    }
+    if let Some(e) = err.downcast_ref::<oapi::ContentTypeError>() {
+        // Describes the client's `Content-Type` header; no internal details.
+        return e.to_string();
+    }
+    status
+        .canonical_reason()
+        .unwrap_or("request error")
+        .to_string()
 }
 
 /// Empty 204 response shared by all delete operations.
