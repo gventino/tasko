@@ -14,6 +14,17 @@ impl Db {
         .await?)
     }
 
+    pub async fn get_board(&self, id: Id) -> Result<Option<Board>> {
+        Ok(
+            sqlx::query_as(
+                "SELECT id, name, key, next_task_num, position FROM boards WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_optional(self.pool())
+            .await?,
+        )
+    }
+
     /// Create a board plus its default columns in one transaction.
     pub async fn create_board(&self, name: &str, key: &str) -> Result<Board> {
         let mut tx = self.pool().begin().await?;

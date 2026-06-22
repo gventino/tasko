@@ -1,3 +1,4 @@
+mod api;
 mod app;
 mod db;
 mod domain;
@@ -41,6 +42,19 @@ fn install_panic_hook() {
     }));
 }
 
+/// Resolve the API port: `--port N` flag, else `TASKO_API_PORT`, else 8080.
+fn api_port(args: &[String]) -> u16 {
+    if let Some(idx) = args.iter().position(|a| a == "--port")
+        && let Some(port) = args.get(idx + 1).and_then(|v| v.parse().ok())
+    {
+        return port;
+    }
+    std::env::var("TASKO_API_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8080)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let db_path = db::default_db_path()?;
@@ -52,6 +66,10 @@ async fn main() -> Result<()> {
         seed::seed(&database, count).await?;
         println!("Seeded {count} tasks into {}", db_path.display());
         return Ok(());
+    }
+
+    if args.iter().any(|a| a == "serve") {
+        return api::serve(database, api_port(&args)).await;
     }
 
     let (tx, rx) = app::channel();
