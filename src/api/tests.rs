@@ -16,7 +16,7 @@ async fn create_board<E: Endpoint>(cli: &TestClient<E>, name: &str) -> i64 {
         .body_json(&json!({ "name": name }))
         .send()
         .await;
-    resp.assert_status_is_ok();
+    resp.assert_status(StatusCode::CREATED);
     resp.json().await.value().object().get("id").i64()
 }
 
@@ -56,7 +56,7 @@ async fn board_crud_flow() {
         .body_json(&json!({ "name": "Main Board" }))
         .send()
         .await;
-    resp.assert_status_is_ok();
+    resp.assert_status(StatusCode::CREATED);
     let created = resp.json().await;
     let id = created.value().object().get("id").i64();
     created.value().object().get("key").assert_string("MB");
@@ -119,7 +119,7 @@ async fn column_crud_flow() {
         .body_json(&json!({ "name": "Backlog" }))
         .send()
         .await;
-    resp.assert_status_is_ok();
+    resp.assert_status(StatusCode::CREATED);
     let col = resp.json().await.value().object().get("id").i64();
 
     // Set then clear the WIP limit.
@@ -167,7 +167,7 @@ async fn task_flow_with_subtasks_labels_and_activities() {
         .body_json(&json!({ "column_id": column, "title": "Task A", "priority": "high" }))
         .send()
         .await;
-    resp.assert_status_is_ok();
+    resp.assert_status(StatusCode::CREATED);
     let task = resp.json().await;
     let task_id = task.value().object().get("id").i64();
     task.value().object().get("priority").assert_string("high");
@@ -192,7 +192,7 @@ async fn task_flow_with_subtasks_labels_and_activities() {
         .body_json(&json!({ "column_id": column, "parent_id": task_id, "title": "Subtask" }))
         .send()
         .await;
-    resp.assert_status_is_ok();
+    resp.assert_status(StatusCode::CREATED);
     let resp = cli.get(format!("/tasks/{task_id}/subtasks")).send().await;
     resp.assert_status_is_ok();
     resp.json().await.value().array().assert_len(1);
@@ -203,7 +203,7 @@ async fn task_flow_with_subtasks_labels_and_activities() {
         .body_json(&json!({ "name": "bug", "color": 1 }))
         .send()
         .await;
-    resp.assert_status_is_ok();
+    resp.assert_status(StatusCode::CREATED);
     let label_id = resp.json().await.value().object().get("id").i64();
 
     let resp = cli
@@ -236,7 +236,7 @@ async fn label_crud_flow() {
         .body_json(&json!({ "name": "feature" }))
         .send()
         .await;
-    resp.assert_status_is_ok();
+    resp.assert_status(StatusCode::CREATED);
     let id = resp.json().await.value().object().get("id").i64();
 
     let resp = cli
@@ -257,4 +257,133 @@ async fn label_crud_flow() {
         .send()
         .await
         .assert_status(StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn patch_task_rejects_cross_board_move() {
+    let cli = test_client().await;
+    let board_a = create_board(&cli, "Board A").await;
+    let board_b = create_board(&cli, "Board B").await;
+    let col_a = first_column_id(&cli, board_a).await;
+    let col_b = first_column_id(&cli, board_b).await;
+
+    let resp = cli
+        .post(format!("/boards/{board_a}/tasks"))
+        .body_json(&json!({ "column_id": col_a, "title": "Task A" }))
+        .send()
+        .await;
+    resp.assert_status(StatusCode::CREATED);
+    let task_id = resp.json().await.value().object().get("id").i64();
+
+    cli.patch(format!("/tasks/{task_id}"))
+        .body_json(&json!({ "column_id": col_b }))
+        .send()
+        .await
+        .assert_status(StatusCode::BAD_REQUEST);
+
+    let resp = cli.get(format!("/tasks/{task_id}")).send().await;
+    resp.assert_status_is_ok();
+    let task = resp.json().await;
+    task.value().object().get("column_id").assert_i64(col_a);
+    task.value().object().get("board_id").assert_i64(board_a);
+}
+
+#[tokio::test]
+async fn patch_task_is_atomic_on_rejected_move() {
+    let cli = test_client().await;
+    let board_a = create_board(&cli, "Atomic A").await;
+    let board_b = create_board(&cli, "Atomic B").await;
+    let col_a = first_column_id(&cli, board_a).await;
+    let col_b = first_column_id(&cli, board_b).await;
+    let original_title = "Original title";
+
+    let resp = cli
+        .post(format!("/boards/{board_a}/tasks"))
+        .body_json(&json!({ "column_id": col_a, "title": original_title }))
+        .send()
+        .await;
+    resp.assert_status(StatusCode::CREATED);
+    let task_id = resp.json().await.value().object().get("id").i64();
+
+    cli.patch(format!("/tasks/{task_id}"))
+        .body_json(&json!({ "title": "CHANGED", "column_id": col_b }))
+        .send()
+        .await
+        .assert_status(StatusCode::BAD_REQUEST);
+
+    let resp = cli.get(format!("/tasks/{task_id}")).send().await;
+    resp.assert_status_is_ok();
+    resp.json()
+        .await
+        .value()
+        .object()
+        .get("title")
+        .assert_string(original_title);
+}
+
+#[tokio::test]
+async fn error_responses_are_json() {
+    let cli = test_client().await;
+
+    let resp = cli.post("/boards").body_json(&json!({})).send().await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+    resp.json().await.value().object().get("error").string();
+
+    let resp = cli
+        .post("/boards")
+        .body_json(&json!({ "name": {} }))
+        .send()
+        .await;
+    resp.assert_status(StatusCode::BAD_REQUEST);
+    resp.json().await.value().object().get("error").string();
+}
+
+#[tokio::test]
+async fn put_task_labels_dedups() {
+    let cli = test_client().await;
+    let board = create_board(&cli, "Dedupe Labels").await;
+    let column = first_column_id(&cli, board).await;
+
+    let resp = cli
+        .post(format!("/boards/{board}/labels"))
+        .body_json(&json!({ "name": "bug" }))
+        .send()
+        .await;
+    resp.assert_status(StatusCode::CREATED);
+    let label_id = resp.json().await.value().object().get("id").i64();
+
+    let resp = cli
+        .post(format!("/boards/{board}/tasks"))
+        .body_json(&json!({ "column_id": column, "title": "Task" }))
+        .send()
+        .await;
+    resp.assert_status(StatusCode::CREATED);
+    let task_id = resp.json().await.value().object().get("id").i64();
+
+    let resp = cli
+        .put(format!("/tasks/{task_id}/labels"))
+        .body_json(&json!({ "label_ids": [label_id, label_id] }))
+        .send()
+        .await;
+    resp.assert_status_is_ok();
+    resp.json().await.value().array().assert_len(1);
+}
+
+#[tokio::test]
+async fn create_returns_201_with_location() {
+    let cli = test_client().await;
+
+    let resp = cli
+        .post("/boards")
+        .body_json(&json!({ "name": "Location Board" }))
+        .send()
+        .await;
+    resp.assert_status(StatusCode::CREATED);
+    resp.assert_header_exist("location");
+    resp.json()
+        .await
+        .value()
+        .object()
+        .get("name")
+        .assert_string("Location Board");
 }

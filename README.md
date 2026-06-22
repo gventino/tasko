@@ -81,19 +81,35 @@ authentication**, so don't expose it directly to a public network.
 | `GET` `POST` | `/boards/:id/columns` | List / create columns |
 | `GET` `PATCH` `DELETE` | `/columns/:id` | Read / update (name, WIP limit) / delete |
 | `GET` `POST` | `/boards/:id/tasks` | List (`?top_level=`, `?parent_id=`) / create tasks |
-| `GET` `PATCH` `DELETE` | `/tasks/:id` | Read / patch (content, status, move) / delete |
+| `GET` `PATCH` `DELETE` | `/tasks/:id` | Read / patch content, status or position / delete |
 | `GET` | `/tasks/:id/subtasks` | List a task's subtasks |
-| `GET` `PUT` | `/tasks/:id/labels` | List / replace a task's labels |
+| `GET` `PUT` | `/tasks/:id/labels` | List / replace the task's label set |
 | `GET` | `/tasks/:id/activities` | Read a task's activity history (read-only) |
 | `GET` `POST` | `/boards/:id/labels` | List / create labels |
 | `GET` `PATCH` `DELETE` | `/labels/:id` | Read / update / delete a label |
 
+Successful `POST` create endpoints return `201 Created` and a `Location` header
+for the new resource (for example, `Location: /tasks/42`). Error responses are
+always JSON: `{ "error": "<message>" }`, with `400` for invalid input (including
+bad JSON bodies and bad path params), `404` for not found, `409` for conflicts
+and `500` for internal errors. Internal error details are logged server-side;
+clients receive a generic message.
+
+`PATCH /tasks/:id` applies content, status and move changes in one transaction:
+all requested changes succeed or none do. Moves are constrained to the task's own
+board; cross-board moves are rejected with `400`. `PUT /tasks/:id/labels`
+replaces the full label set and de-duplicates `label_ids`.
+
 ```sh
-curl -s localhost:8080/boards -H 'content-type: application/json' \
+curl -i -s localhost:8080/boards -H 'content-type: application/json' \
   -d '{"name":"Main Board"}'
-curl -s localhost:8080/boards/1/tasks -H 'content-type: application/json' \
+curl -i -s localhost:8080/boards/1/tasks -H 'content-type: application/json' \
   -d '{"column_id":1,"title":"First task","priority":"high"}'
 ```
+
+Notes: `DELETE` returns `404` when the resource does not exist (not idempotent,
+for clearer feedback). List response pagination and API versioning (for example,
+a `/v1` prefix) are not implemented yet.
 
 ## Design notes (resource usage)
 

@@ -14,6 +14,18 @@ pub struct NewTask {
     pub due_date: Option<NaiveDate>,
 }
 
+#[derive(Default)]
+pub struct TaskPatch {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub priority: Option<Priority>,
+    /// Tri-state: None = leave, Some(None) = clear, Some(Some(d)) = set.
+    pub due_date: Option<Option<NaiveDate>>,
+    pub done: Option<bool>,
+    /// (column_id, position)
+    pub move_to: Option<(Id, i64)>,
+}
+
 impl Db {
     /// All tasks of a board, subtasks included; ordering is resolved in memory.
     pub async fn tasks_for_board(&self, board_id: Id) -> Result<Vec<Task>> {
@@ -151,6 +163,79 @@ impl Db {
         .execute(self.pool())
         .await?;
         Ok(())
+    }
+
+    pub async fn patch_task(&self, id: Id, patch: TaskPatch) -> Result<Option<Task>> {
+        let mut tx = self.pool().begin().await?;
+        let current: Option<Task> = sqlx::query_as::<_, Task>(
+            "SELECT id, board_id, column_id, parent_id, key, title, description, priority, \
+             position, due_date, done, created_at, updated_at \
+             FROM tasks WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some(current) = current else {
+            return Ok(None);
+        };
+
+        if patch.title.is_some()
+            || patch.description.is_some()
+            || patch.priority.is_some()
+            || patch.due_date.is_some()
+        {
+            let title = patch.title.as_deref().unwrap_or(&current.title);
+            let description = patch.description.as_deref().unwrap_or(&current.description);
+            let priority = patch.priority.unwrap_or(current.priority);
+            let due_date = patch.due_date.unwrap_or(current.due_date);
+
+            sqlx::query(
+                "UPDATE tasks SET title = ?, description = ?, priority = ?, due_date = ?, \
+                 updated_at = ? WHERE id = ?",
+            )
+            .bind(title)
+            .bind(description)
+            .bind(i64::from(priority))
+            .bind(due_date)
+            .bind(Utc::now())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        if let Some(done) = patch.done {
+            sqlx::query("UPDATE tasks SET done = ?, updated_at = ? WHERE id = ?")
+                .bind(done)
+                .bind(Utc::now())
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        if let Some((column_id, position)) = patch.move_to {
+            sqlx::query(
+                "UPDATE tasks SET column_id = ?, position = ?, updated_at = ? WHERE id = ?",
+            )
+            .bind(column_id)
+            .bind(position)
+            .bind(Utc::now())
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        let task: Task = sqlx::query_as::<_, Task>(
+            "SELECT id, board_id, column_id, parent_id, key, title, description, priority, \
+             position, due_date, done, created_at, updated_at \
+             FROM tasks WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(Some(task))
     }
 
     pub async fn move_task(&self, id: Id, column_id: Id, position: i64) -> Result<()> {

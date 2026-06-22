@@ -3,7 +3,7 @@ use poem_openapi::param::Path;
 use poem_openapi::{OpenApi, payload::Json};
 
 use super::dto::{BoardDto, CreateBoard, UpdateBoard};
-use super::{ApiError, DeletedResponse};
+use super::{ApiError, DeletedResponse, IntoApiResult};
 use crate::db::Db;
 use crate::domain::{Board, derive_board_key};
 
@@ -16,13 +16,13 @@ impl BoardApi {
     /// List all boards.
     #[oai(path = "/boards", method = "get")]
     async fn list(&self) -> Result<Json<Vec<BoardDto>>> {
-        let boards = self.db.list_boards().await.map_err(ApiError::from)?;
+        let boards = self.db.list_boards().await.api()?;
         Ok(Json(boards.into_iter().map(BoardDto::from).collect()))
     }
 
     /// Create a board. The key is derived from the name when omitted.
     #[oai(path = "/boards", method = "post")]
-    async fn create(&self, body: Json<CreateBoard>) -> Result<Json<BoardDto>> {
+    async fn create(&self, body: Json<CreateBoard>) -> Result<super::Created<BoardDto>> {
         let body = body.0;
         let name = body.name.trim().to_string();
         if name.is_empty() {
@@ -35,19 +35,16 @@ impl BoardApi {
                     .db
                     .list_boards()
                     .await
-                    .map_err(ApiError::from)?
+                    .api()?
                     .into_iter()
                     .map(|b| b.key)
                     .collect();
                 derive_board_key(&name, &existing)
             }
         };
-        let board = self
-            .db
-            .create_board(&name, &key)
-            .await
-            .map_err(ApiError::from)?;
-        Ok(Json(board.into()))
+        let board = self.db.create_board(&name, &key).await.api()?;
+        let location = format!("/boards/{}", board.id);
+        Ok(super::Created::Created(Json(board.into()), location))
     }
 
     /// Fetch a single board by id.
@@ -65,10 +62,7 @@ impl BoardApi {
         if name.is_empty() {
             return Err(ApiError::bad_request("board name must not be empty").into());
         }
-        self.db
-            .rename_board(id, &name)
-            .await
-            .map_err(ApiError::from)?;
+        self.db.rename_board(id, &name).await.api()?;
         Ok(Json(self.load(id).await?.into()))
     }
 
@@ -77,17 +71,17 @@ impl BoardApi {
     async fn delete(&self, id: Path<i64>) -> Result<DeletedResponse> {
         let id = id.0;
         self.load(id).await?;
-        self.db.delete_board(id).await.map_err(ApiError::from)?;
+        self.db.delete_board(id).await.api()?;
         Ok(DeletedResponse::NoContent)
     }
 }
 
 impl BoardApi {
     async fn load(&self, id: i64) -> Result<Board> {
-        self.db
-            .get_board(id)
-            .await
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError::not_found(format!("board {id} not found")).into())
+        Ok(super::found(
+            self.db.get_board(id).await.api()?,
+            "board",
+            id,
+        )?)
     }
 }

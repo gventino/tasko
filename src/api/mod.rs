@@ -11,7 +11,7 @@ mod tasks;
 use anyhow::Result;
 use poem::http::StatusCode;
 use poem::listener::TcpListener;
-use poem::{Endpoint, Response, Route, Server};
+use poem::{Endpoint, EndpointExt, Response, Route, Server};
 use poem_openapi::{ApiResponse, Object, OpenApi, OpenApiService, payload::Json};
 
 use crate::db::Db;
@@ -30,18 +30,18 @@ pub enum ApiError {
 }
 
 impl ApiError {
-    pub fn not_found(msg: impl Into<String>) -> Self {
+    pub(crate) fn not_found(msg: impl Into<String>) -> Self {
         Self::NotFound(msg.into())
     }
 
-    pub fn bad_request(msg: impl Into<String>) -> Self {
+    pub(crate) fn bad_request(msg: impl Into<String>) -> Self {
         Self::BadRequest(msg.into())
     }
 
     fn message(&self) -> String {
         match self {
             Self::NotFound(m) | Self::BadRequest(m) => m.clone(),
-            Self::Internal(e) => e.to_string(),
+            Self::Internal(_) => "internal server error".to_string(),
         }
     }
 }
@@ -57,6 +57,16 @@ impl std::error::Error for ApiError {}
 impl From<anyhow::Error> for ApiError {
     fn from(e: anyhow::Error) -> Self {
         Self::Internal(e)
+    }
+}
+
+pub(crate) trait IntoApiResult<T> {
+    fn api(self) -> std::result::Result<T, ApiError>;
+}
+
+impl<T> IntoApiResult<T> for anyhow::Result<T> {
+    fn api(self) -> std::result::Result<T, ApiError> {
+        self.map_err(ApiError::Internal)
     }
 }
 
@@ -84,15 +94,30 @@ fn internal_status(e: &anyhow::Error) -> StatusCode {
         use sqlx::error::ErrorKind;
         if matches!(
             db.kind(),
-            ErrorKind::UniqueViolation
-                | ErrorKind::ForeignKeyViolation
-                | ErrorKind::NotNullViolation
-                | ErrorKind::CheckViolation
+            ErrorKind::UniqueViolation | ErrorKind::ForeignKeyViolation
         ) {
             return StatusCode::CONFLICT;
         }
     }
     StatusCode::INTERNAL_SERVER_ERROR
+}
+
+async fn render_error(err: poem::Error) -> poem::Response {
+    use poem::IntoResponse;
+
+    let status = err.status();
+    let message = match err.downcast_ref::<ApiError>() {
+        Some(ApiError::Internal(e)) => {
+            eprintln!("internal API error: {e:#}");
+            "internal server error".to_string()
+        }
+        Some(other) => other.to_string(),
+        None => err.to_string(),
+    };
+
+    poem::web::Json(serde_json::json!({ "error": message }))
+        .with_status(status)
+        .into_response()
 }
 
 /// Empty 204 response shared by all delete operations.
@@ -101,6 +126,26 @@ pub enum DeletedResponse {
     /// Resource deleted.
     #[oai(status = 204)]
     NoContent,
+}
+
+#[derive(ApiResponse)]
+pub(crate) enum Created<T: poem_openapi::types::ToJSON> {
+    #[oai(status = 201)]
+    Created(Json<T>, #[oai(header = "Location")] String),
+}
+
+pub(crate) fn found<T>(opt: Option<T>, what: &str, id: i64) -> std::result::Result<T, ApiError> {
+    opt.ok_or_else(|| ApiError::not_found(format!("{what} {id} not found")))
+}
+
+pub(crate) async fn ensure_board(
+    db: &crate::db::Db,
+    board_id: i64,
+) -> std::result::Result<(), ApiError> {
+    if db.get_board(board_id).await.api()?.is_none() {
+        return Err(ApiError::not_found(format!("board {board_id} not found")));
+    }
+    Ok(())
 }
 
 #[derive(Object)]
@@ -138,6 +183,7 @@ fn build_app(db: Db, port: u16) -> impl Endpoint {
         .nest("/swagger-ui", swagger)
         .at("/openapi.json", spec)
         .nest("/", service)
+        .catch_all_error(render_error)
 }
 
 /// Run the HTTP REST API server, bound to localhost on `port`.

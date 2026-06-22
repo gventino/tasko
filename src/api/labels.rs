@@ -3,7 +3,7 @@ use poem_openapi::param::Path;
 use poem_openapi::{OpenApi, payload::Json};
 
 use super::dto::{CreateLabel, LabelDto, UpdateLabel};
-use super::{ApiError, DeletedResponse};
+use super::{ApiError, DeletedResponse, IntoApiResult};
 use crate::db::Db;
 use crate::domain::Label;
 
@@ -16,31 +16,28 @@ impl LabelApi {
     /// List a board's labels.
     #[oai(path = "/boards/:board_id/labels", method = "get")]
     async fn list(&self, board_id: Path<i64>) -> Result<Json<Vec<LabelDto>>> {
-        self.ensure_board(board_id.0).await?;
-        let labels = self
-            .db
-            .labels_for_board(board_id.0)
-            .await
-            .map_err(ApiError::from)?;
+        super::ensure_board(&self.db, board_id.0).await?;
+        let labels = self.db.labels_for_board(board_id.0).await.api()?;
         Ok(Json(labels.into_iter().map(LabelDto::from).collect()))
     }
 
     /// Create a label on a board.
     #[oai(path = "/boards/:board_id/labels", method = "post")]
-    async fn create(&self, board_id: Path<i64>, body: Json<CreateLabel>) -> Result<Json<LabelDto>> {
-        self.ensure_board(board_id.0).await?;
+    async fn create(
+        &self,
+        board_id: Path<i64>,
+        body: Json<CreateLabel>,
+    ) -> Result<super::Created<LabelDto>> {
+        super::ensure_board(&self.db, board_id.0).await?;
         let body = body.0;
         let name = body.name.trim().to_string();
         if name.is_empty() {
             return Err(ApiError::bad_request("label name must not be empty").into());
         }
         let color = body.color.unwrap_or(0);
-        let label = self
-            .db
-            .create_label(board_id.0, &name, color)
-            .await
-            .map_err(ApiError::from)?;
-        Ok(Json(label.into()))
+        let label = self.db.create_label(board_id.0, &name, color).await.api()?;
+        let location = format!("/labels/{}", label.id);
+        Ok(super::Created::Created(Json(label.into()), location))
     }
 
     /// Fetch a single label by id.
@@ -66,10 +63,7 @@ impl LabelApi {
             None => current.name.clone(),
         };
         let color = body.color.unwrap_or(current.color);
-        self.db
-            .update_label(id, &name, color)
-            .await
-            .map_err(ApiError::from)?;
+        self.db.update_label(id, &name, color).await.api()?;
         Ok(Json(self.load(id).await?.into()))
     }
 
@@ -78,26 +72,17 @@ impl LabelApi {
     async fn delete(&self, id: Path<i64>) -> Result<DeletedResponse> {
         let id = id.0;
         self.load(id).await?;
-        self.db.delete_label(id).await.map_err(ApiError::from)?;
+        self.db.delete_label(id).await.api()?;
         Ok(DeletedResponse::NoContent)
     }
 }
 
 impl LabelApi {
     async fn load(&self, id: i64) -> Result<Label> {
-        self.db
-            .get_label(id)
-            .await
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError::not_found(format!("label {id} not found")).into())
-    }
-
-    async fn ensure_board(&self, board_id: i64) -> Result<()> {
-        self.db
-            .get_board(board_id)
-            .await
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError::not_found(format!("board {board_id} not found")))?;
-        Ok(())
+        Ok(super::found(
+            self.db.get_label(id).await.api()?,
+            "label",
+            id,
+        )?)
     }
 }

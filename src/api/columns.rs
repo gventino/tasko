@@ -4,7 +4,7 @@ use poem_openapi::types::MaybeUndefined;
 use poem_openapi::{OpenApi, payload::Json};
 
 use super::dto::{ColumnDto, CreateColumn, UpdateColumn};
-use super::{ApiError, DeletedResponse};
+use super::{ApiError, DeletedResponse, IntoApiResult};
 use crate::db::Db;
 use crate::domain::Column;
 
@@ -17,12 +17,8 @@ impl ColumnApi {
     /// List a board's columns, left to right.
     #[oai(path = "/boards/:board_id/columns", method = "get")]
     async fn list(&self, board_id: Path<i64>) -> Result<Json<Vec<ColumnDto>>> {
-        self.ensure_board(board_id.0).await?;
-        let columns = self
-            .db
-            .columns_for_board(board_id.0)
-            .await
-            .map_err(ApiError::from)?;
+        super::ensure_board(&self.db, board_id.0).await?;
+        let columns = self.db.columns_for_board(board_id.0).await.api()?;
         Ok(Json(columns.into_iter().map(ColumnDto::from).collect()))
     }
 
@@ -32,18 +28,15 @@ impl ColumnApi {
         &self,
         board_id: Path<i64>,
         body: Json<CreateColumn>,
-    ) -> Result<Json<ColumnDto>> {
-        self.ensure_board(board_id.0).await?;
+    ) -> Result<super::Created<ColumnDto>> {
+        super::ensure_board(&self.db, board_id.0).await?;
         let name = body.0.name.trim().to_string();
         if name.is_empty() {
             return Err(ApiError::bad_request("column name must not be empty").into());
         }
-        let column = self
-            .db
-            .create_column(board_id.0, &name)
-            .await
-            .map_err(ApiError::from)?;
-        Ok(Json(column.into()))
+        let column = self.db.create_column(board_id.0, &name).await.api()?;
+        let location = format!("/columns/{}", column.id);
+        Ok(super::Created::Created(Json(column.into()), location))
     }
 
     /// Fetch a single column by id.
@@ -63,23 +56,12 @@ impl ColumnApi {
             if name.is_empty() {
                 return Err(ApiError::bad_request("column name must not be empty").into());
             }
-            self.db
-                .rename_column(id, &name)
-                .await
-                .map_err(ApiError::from)?;
+            self.db.rename_column(id, &name).await.api()?;
         }
         match body.wip_limit {
             MaybeUndefined::Undefined => {}
-            MaybeUndefined::Null => self
-                .db
-                .set_wip_limit(id, None)
-                .await
-                .map_err(ApiError::from)?,
-            MaybeUndefined::Value(v) => self
-                .db
-                .set_wip_limit(id, Some(v))
-                .await
-                .map_err(ApiError::from)?,
+            MaybeUndefined::Null => self.db.set_wip_limit(id, None).await.api()?,
+            MaybeUndefined::Value(v) => self.db.set_wip_limit(id, Some(v)).await.api()?,
         }
         Ok(Json(self.load(id).await?.into()))
     }
@@ -89,26 +71,17 @@ impl ColumnApi {
     async fn delete(&self, id: Path<i64>) -> Result<DeletedResponse> {
         let id = id.0;
         self.load(id).await?;
-        self.db.delete_column(id).await.map_err(ApiError::from)?;
+        self.db.delete_column(id).await.api()?;
         Ok(DeletedResponse::NoContent)
     }
 }
 
 impl ColumnApi {
     async fn load(&self, id: i64) -> Result<Column> {
-        self.db
-            .get_column(id)
-            .await
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError::not_found(format!("column {id} not found")).into())
-    }
-
-    async fn ensure_board(&self, board_id: i64) -> Result<()> {
-        self.db
-            .get_board(board_id)
-            .await
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError::not_found(format!("board {board_id} not found")))?;
-        Ok(())
+        Ok(super::found(
+            self.db.get_column(id).await.api()?,
+            "column",
+            id,
+        )?)
     }
 }
