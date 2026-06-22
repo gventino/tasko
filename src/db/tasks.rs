@@ -27,6 +27,29 @@ impl Db {
         .await?)
     }
 
+    pub async fn get_task(&self, id: Id) -> Result<Option<Task>> {
+        Ok(sqlx::query_as(
+            "SELECT id, board_id, column_id, parent_id, key, title, description, priority, \
+             position, due_date, done, created_at, updated_at \
+             FROM tasks WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(self.pool())
+        .await?)
+    }
+
+    /// Direct children of a task (its subtasks), ordered by position.
+    pub async fn subtasks(&self, parent_id: Id) -> Result<Vec<Task>> {
+        Ok(sqlx::query_as(
+            "SELECT id, board_id, column_id, parent_id, key, title, description, priority, \
+             position, due_date, done, created_at, updated_at \
+             FROM tasks WHERE parent_id = ? ORDER BY position, id",
+        )
+        .bind(parent_id)
+        .fetch_all(self.pool())
+        .await?)
+    }
+
     /// Insert a task, atomically allocating its board-scoped key (e.g. "TSK-7")
     /// and a position at the end of its column (or sibling list, for subtasks).
     pub async fn create_task(&self, new: NewTask) -> Result<Task> {

@@ -14,6 +14,15 @@ impl Db {
         .await?)
     }
 
+    pub async fn get_column(&self, id: Id) -> Result<Option<Column>> {
+        Ok(sqlx::query_as(
+            "SELECT id, board_id, name, position, wip_limit FROM columns WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(self.pool())
+        .await?)
+    }
+
     pub async fn create_column(&self, board_id: Id, name: &str) -> Result<Column> {
         Ok(sqlx::query_as(
             "INSERT INTO columns (board_id, name, position) \

@@ -25,6 +25,37 @@ impl Db {
         .await?)
     }
 
+    pub async fn get_label(&self, id: Id) -> Result<Option<Label>> {
+        Ok(
+            sqlx::query_as("SELECT id, board_id, name, color FROM labels WHERE id = ?")
+                .bind(id)
+                .fetch_optional(self.pool())
+                .await?,
+        )
+    }
+
+    pub async fn update_label(&self, id: Id, name: &str, color: i64) -> Result<()> {
+        sqlx::query("UPDATE labels SET name = ?, color = ? WHERE id = ?")
+            .bind(name)
+            .bind(color)
+            .bind(id)
+            .execute(self.pool())
+            .await?;
+        Ok(())
+    }
+
+    /// Labels attached to a single task (for `GET /tasks/:id/labels`).
+    pub async fn labels_for_task(&self, task_id: Id) -> Result<Vec<Label>> {
+        Ok(sqlx::query_as(
+            "SELECT l.id, l.board_id, l.name, l.color FROM labels l \
+             JOIN task_labels tl ON tl.label_id = l.id \
+             WHERE tl.task_id = ? ORDER BY l.name, l.id",
+        )
+        .bind(task_id)
+        .fetch_all(self.pool())
+        .await?)
+    }
+
     pub async fn delete_label(&self, id: Id) -> Result<()> {
         sqlx::query("DELETE FROM labels WHERE id = ?")
             .bind(id)

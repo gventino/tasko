@@ -9,10 +9,16 @@ chrono = "0.4.45"
 crossterm = { version = "0.28.1", features = ["event-stream"] }
 directories = "6.0.0"
 futures = "0.3.32"
+poem = "3.1.12"
+poem-openapi = { version = "5.1.16", features = ["swagger-ui", "chrono"] }
 ratatui = "0.29.0"
+serde_json = "1.0.150"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "chrono", "migrate", "macros"] }
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tui-textarea = "0.7.0"
+
+[dev-dependencies]
+poem = { version = "3.1.12", features = ["test"] }
 
 [profile.release]
 lto = "thin"

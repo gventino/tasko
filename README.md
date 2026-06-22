@@ -57,6 +57,44 @@ cargo run --release
 
 Press `?` inside the app for the full keymap.
 
+## API mode
+
+Run tasko as a local HTTP REST server instead of the TUI — handy for
+importing/exporting data, scripting, and integrating with other tools. It
+serves JSON CRUD endpoints for every entity plus an interactive Swagger UI, all
+backed by the same SQLite database.
+
+```sh
+tasko serve                  # bind 127.0.0.1:8080
+tasko serve --port 9000      # custom port (or set TASKO_API_PORT)
+```
+
+Open <http://127.0.0.1:8080/swagger-ui> for the interactive reference (the raw
+spec lives at `/openapi.json`). The server binds to localhost only and has **no
+authentication**, so don't expose it directly to a public network.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/health` | Liveness probe |
+| `GET` `POST` | `/boards` | List / create boards |
+| `GET` `PATCH` `DELETE` | `/boards/:id` | Read / rename / delete a board |
+| `GET` `POST` | `/boards/:id/columns` | List / create columns |
+| `GET` `PATCH` `DELETE` | `/columns/:id` | Read / update (name, WIP limit) / delete |
+| `GET` `POST` | `/boards/:id/tasks` | List (`?top_level=`, `?parent_id=`) / create tasks |
+| `GET` `PATCH` `DELETE` | `/tasks/:id` | Read / patch (content, status, move) / delete |
+| `GET` | `/tasks/:id/subtasks` | List a task's subtasks |
+| `GET` `PUT` | `/tasks/:id/labels` | List / replace a task's labels |
+| `GET` | `/tasks/:id/activities` | Read a task's activity history (read-only) |
+| `GET` `POST` | `/boards/:id/labels` | List / create labels |
+| `GET` `PATCH` `DELETE` | `/labels/:id` | Read / update / delete a label |
+
+```sh
+curl -s localhost:8080/boards -H 'content-type: application/json' \
+  -d '{"name":"Main Board"}'
+curl -s localhost:8080/boards/1/tasks -H 'content-type: application/json' \
+  -d '{"column_id":1,"title":"First task","priority":"high"}'
+```
+
 ## Design notes (resource usage)
 
 - **Zero idle CPU** — no tick loop. The event loop `select!`s over the
@@ -81,8 +119,9 @@ cargo clippy --all-targets
 
 Common tasks are wrapped in a `Makefile` — run `make` (or `make help`) to list
 them, e.g. `make build`, `make install`, `make test`, `make ci`,
-`make seed N=500`, `make run DB=/tmp/demo.db`.
+`make seed N=500`, `make run DB=/tmp/demo.db`, `make serve PORT=9000`.
 
 Architecture: Elm-style message loop (`src/app.rs`), pure render
 (`src/ui/`), repositories (`src/db/`), domain types and position math
-(`src/domain/`), key→message mapping per context (`src/input.rs`).
+(`src/domain/`), key→message mapping per context (`src/input.rs`), HTTP REST
+API (`src/api/`).
